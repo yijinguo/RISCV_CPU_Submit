@@ -1,8 +1,6 @@
 // RISCV32I CPU top module
 // port modification allowed for debugging purposes
 
-
-
 module cpu(
   input  wire                 clk_in,			// system clock signal
   input  wire                 rst_in,			// reset signal
@@ -30,19 +28,19 @@ module cpu(
 // - 0x30004 read: read clocks passed since cpu starts (in dword, 4 bytes)
 // - 0x30004 write: indicates program stop (will output '\0' through uart tx)
 
-wire signal = 1'b1; //1:instruction; 0:data
-wire pc_update = 1'b1;
+wire signal; //1:instruction; 0:data
+wire pc_update;
 wire [31:0] pc_address; //current_pc_address
 
-wire icache_have_out = 1'b0;
+wire icache_have_out;
 wire [31:0] icache_instr_out;
 wire [31:0] icache_instr_pc_out;
 wire [31:0] icache_expect_mem_a; 
 
 wire IF_not_full = 1'b1;
-wire rob_full = 1'b0;
+wire rob_full;
 
-wire IF_have_output = 1'b0;
+wire IF_have_output;
 wire [31:0] IF_instr;
 wire [31:0] IF_instr_pc;
 wire [16:0] IF_opcode;
@@ -50,7 +48,6 @@ wire [4:0] IF_rd;
 wire [4:0] IF_rs1;
 wire [4:0] IF_rs2;
 wire [31:0] IF_imm;
-
 
 wire slb_need;
 wire [ 4:0] slb_entry_out;
@@ -62,8 +59,8 @@ wire dcache_have_mem_in;
 wire [ 4:0] dcache_entry_in;
 wire [31:0] dcache_data_in;
 wire [31:0] dcache_mem_a;
-wire dcache_signal = 1'b0; //0:do nothing ; 1:have something
-wire dcache_wr = 1'b0;
+wire dcache_signal; //0:do nothing ; 1:have something
+wire dcache_wr;
 
 //data bus
 wire cdb_rs_modify;
@@ -97,7 +94,7 @@ wire [ 4:0] rob_cdb_slb_rd;
 wire [31:0] rob_cdb_slb_value;
 
 //rob
-wire rob_have_out = 1'b0;
+wire rob_have_out;
 wire [1:0] rob_slb_or_rs_or_pc; //0 arrive slb, 1 arrive rs, 2 arrive pc(branch)
 wire rob_is_jump_out;
 wire [ 4:0] rob_entry_out;
@@ -108,28 +105,29 @@ wire [ 4:0] rob_rs1_out, rob_rs2_out;
 wire [31:0] rob_imm_out;
 
 //commit info
-wire have_commit = 1'b0;
+wire have_commit;
 wire [ 4:0] commit_entry;
 wire [ 1:0] commit_destType; //0: mem; 1: reg; 2:branch; 3:jl(jump&link)
-wire commit_if_pc_change = 1'b0;
+wire commit_if_pc_change;
 wire [31:0] commit_new_pc_address;
 wire [ 4:0] commit_destination;
 wire [31:0] commit_value;
 
-wire rs_full = 1'b0;
+wire rs_full;
 wire slb_full = 1'b0;
 
 assign signal = (!dcache_signal);
 assign mem_wr = (dcache_signal && dcache_wr);
 assign mem_a = (dcache_signal && !dcache_wr) ? dcache_mem_a : pc_address;
-assign pc_update = ((commit_destType==2'b10|commit_destType==2'b11) && commit_if_pc_change);
-assign pc_address = commit_new_pc_address;
+assign pc_update = ((commit_destType==2'b10||commit_destType==2'b11) && commit_if_pc_change);
+assign pc_address = (commit_if_pc_change) ? commit_new_pc_address : icache_expect_mem_a;
 
 icache icache_running(
   .clk_in       (clk_in),
   .rst_in       (rst_in),
   .rdy_in       (rdy_in),
-  .have_mem_in  (signal),
+  .clear        (pc_update),
+  .have_mem_in  (signal && (pc_address||pc_address==32'b0)),
   .mem_din      (mem_din),
   .pc_update    (pc_update),
   .pc_address   (pc_address),
@@ -146,6 +144,7 @@ IF IF_running(
   .clk_in               (clk_in),
   .rst_in               (rst_in),
   .rdy_in               (rdy_in),
+  .clear                (pc_update),
   .icache_have_input    (icache_have_out),
   .icache_instr_input   (icache_instr_out),
   .icache_instr_pc_input(icache_instr_pc_out),
@@ -166,6 +165,7 @@ rob rob_running(
   .clk_in         (clk_in),
   .rst_in         (rst_in),
   .rdy_in         (rdy_in),
+  .clear          (pc_update),
   .have_input     (IF_have_output),
   .instr_input    (IF_instr),
   .instr_input_pc (IF_instr_pc),
@@ -231,6 +231,7 @@ rs rs_running(
   .clk_in                 (clk_in),
   .rst_in                 (rst_in),
   .rdy_in                 (rdy_in),
+  .clear                  (pc_update),
   .from_rob               (rob_have_out && rob_slb_or_rs_or_pc==2'b01),
   .entry_in               (rob_entry_out),
   .opcode_in              (rob_opcode_out),
@@ -259,9 +260,10 @@ rs rs_running(
 );
 
 branch branch_running(
-  .clk_in       (clk_in),
-  .rst_in       (rst_in),
-  .rdy_in       (rdy_in),
+  .clk_in           (clk_in),
+  .rst_in           (rst_in),
+  .rdy_in           (rdy_in),
+  .clear            (pc_update),
   .have_input       (rob_have_out && rob_slb_or_rs_or_pc == 2'b10),
   .entry_input      (rob_entry_out),
   .opcode_input     (rob_opcode_out),
@@ -295,7 +297,7 @@ dcache dcache_running(
   .clk_in         (clk_in),
   .rst_in         (rst_in),
   .rdy_in         (rdy_in),
-
+  .clear          (pc_update),
   .have_mem_in    (!signal),
   .mem_din        (mem_din),
 
@@ -319,6 +321,7 @@ slb slb_running(
   .clk_in                 (clk_in),
   .rst_in                 (rst_in),
   .rdy_in                 (rdy_in),
+  .clear                  (pc_update),
   .from_rob               (rob_have_out && rob_slb_or_rs_or_pc == 2'b00),
   .entry_in               (rob_entry_out),
   .opcode_in              (rob_opcode_out),

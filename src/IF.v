@@ -4,7 +4,7 @@ module IF #(
     input wire          clk_in,		
     input wire          rst_in,		
 	input wire			rdy_in,	
-
+    input wire          clear,
     //from icache
     input  wire         icache_have_input,
     input  wire [31:0]  icache_instr_input,
@@ -32,7 +32,7 @@ reg[4:0] rs2[IF_SIZE-1:0];     //24:20
 reg[31:0] imm[IF_SIZE-1:0];    
 integer queue_num;
 
-reg local_have_out;
+reg local_have_out = 1'b0;
 reg [31:0] local_instr_out;
 reg [31:0] local_instr_pc_out;
 reg [16:0] local_opcode_out;
@@ -55,7 +55,7 @@ integer i;
 
 
 always @(posedge clk_in) begin
-    if (rst_in) begin
+    if (rst_in || clear) begin
         queue_num <= 0;
     end
     else if (!rdy_in) begin
@@ -70,15 +70,15 @@ always @(posedge clk_in) begin
             local_rd_out <= rd[0];
             local_rs1_out <= rs1[0];
             local_rs2_out <= rs2[0];
-            local_imm_out = imm[0];
+            local_imm_out <= imm[0];
             for (i=0; i<queue_num-1; i=i+1) begin
                 instr_queue[i] <= instr_queue[i+1];
                 instr_pc_queue[i] <= instr_pc_queue[i+1];
-                opcode[i] = opcode[i+1];
-                rd[i] = rd[i+1];
-                rs1[i] = rs1[i+1];
-                rs2[i] = rs2[i+1];
-                imm[i] = imm[i+1];
+                opcode[i] <= opcode[i+1];
+                rd[i] <= rd[i+1];
+                rs1[i] <= rs1[i+1];
+                rs2[i] <= rs2[i+1];
+                imm[i] <= imm[i+1];
             end
             queue_num <= queue_num - 1;
         end
@@ -96,34 +96,52 @@ always @(posedge clk_in) begin
             rs2[queue_num] <= icache_instr_input[24:20];
             rd[queue_num] <= icache_instr_input[11:7];
             queue_num <= queue_num + 1;
-            case (opcode[queue_num][6:0])
-                7'b0110111: imm[queue_num][31:12] <= icache_instr_input[31:12];
-                7'b0010111: imm[queue_num][31:12] <= icache_instr_input[31:12];                    
+            case (icache_instr_input[6:0])
+                7'b0110111: begin
+                    imm[queue_num][11:0] <= 12'b0;
+                    imm[queue_num][31:12] <= icache_instr_input[31:12];
+                end 
+                7'b0010111: begin 
+                    imm[queue_num][11:0] <= 12'b0;
+                    imm[queue_num][31:12] <= icache_instr_input[31:12];
+                end                    
                 7'b1101111: begin
-                    imm[queue_num][20] <= icache_instr_input[31];
+                    imm[queue_num][0] <= 1'b0;
                     imm[queue_num][10:1] <= icache_instr_input[30:21];
                     imm[queue_num][11] <= icache_instr_input[20];
                     imm[queue_num][19:12] <= icache_instr_input[19:12];
+                    imm[queue_num][20] <= icache_instr_input[31];
+                    imm[queue_num][31:21] <= 11'b0;
                 end
-                7'b1100111: imm[queue_num][11:0] <= icache_instr_input[31:20];
+                7'b1100111: begin
+                    imm[queue_num][11:0] <= icache_instr_input[31:20];
+                    imm[queue_num][31:12] <= 20'b0;
+                end
                 7'b1100011: begin
-                    imm[queue_num][12] <= icache_instr_input[31];
-                    imm[queue_num][10:5] <= icache_instr_input[30:25];
+                    imm[queue_num][0] <= 1'b0;
                     imm[queue_num][4:1] <= icache_instr_input[11:8];
+                    imm[queue_num][10:5] <= icache_instr_input[30:25];
                     imm[queue_num][11] <=  icache_instr_input[7];
+                    imm[queue_num][12] <= icache_instr_input[31];
+                    imm[queue_num][31:13] <= 19'b0;
                 end
-                7'b0000011: imm[queue_num][11:0] <= icache_instr_input[31:20];
+                7'b0000011: begin
+                    imm[queue_num][11:0] <= icache_instr_input[31:20];
+                    imm[queue_num][31:12] <= 20'b0;
+                end
                 7'b0100011: begin
-                    imm[queue_num][11:5] <= icache_instr_input[31:25];
                     imm[queue_num][4:0] <= icache_instr_input[11:7];
+                    imm[queue_num][11:5] <= icache_instr_input[31:25];
+                    imm[queue_num][31:12] <= 20'b0;
                 end
-                7'b0010011: imm[queue_num][4:0] <= icache_instr_input[24:20];
-            default: ;
-          endcase
+                7'b0010011: begin
+                    imm[queue_num][4:0] <= icache_instr_input[24:20];
+                    imm[queue_num][31:5] <= 27'b0;
+                end
+                default: ;
+            endcase
         end
-
-       
-
+        
       end
   end
 

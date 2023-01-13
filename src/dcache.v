@@ -4,6 +4,7 @@ module dcache #(
     input   wire        clk_in,
     input   wire        rst_in,
     input   wire        rdy_in,
+    input   wire        clear,
     //directly from memory
     input   wire        have_mem_in, 
     input   wire [ 7:0] mem_din,
@@ -31,21 +32,21 @@ reg [ 4:0] entry[DCACHE_SIZE-1:0];
 reg [31:0] mem_address[DCACHE_SIZE-1:0];
 reg [31:0] mem_data[DCACHE_SIZE-1:0];
 
-reg state;
-reg current_wr;
+reg state = 1'b0;
+reg current_wr = 1'b0;
 integer current_loc;
-reg [ 4:0] current_entry;
-reg [31:0] current_mem_a;
-reg [31:0] current_mem_data;
+reg [ 4:0] current_entry = 5'b0;
+reg [31:0] current_mem_a = 32'b0;
+reg [31:0] current_mem_data = 32'b0;
 
-reg dcache_have_mem_out;
-reg [ 4:0] dcache_mem_entry_out;
-reg [31:0] dcache_mem_din_out;
+reg dcache_have_mem_out = 1'b0;
+reg [ 4:0] dcache_mem_entry_out = 5'b0;
+reg [31:0] dcache_mem_din_out = 32'b0;
 
-reg dcache_mem_signal;
-reg [ 7:0] dcache_mem_dout;
-reg [31:0] dcache_mem_a;
-reg dcache_mem_wr;
+reg dcache_mem_signal = 1'b0;
+reg [ 7:0] dcache_mem_dout = 8'b0;
+reg [31:0] dcache_mem_a = 32'b0;
+reg dcache_mem_wr = 1'b0;
 
 integer i;
 
@@ -60,7 +61,7 @@ assign mem_wr = dcache_mem_wr;
 
 
 always @(posedge clk_in) begin
-    if (rst_in) begin
+    if (rst_in || clear) begin
       current_entry <= 5'b0;
       dcache_num <= 0;
     end

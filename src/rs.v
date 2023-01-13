@@ -8,6 +8,7 @@ module rs #(
     input   wire            clk_in,
     input   wire            rst_in,
     input   wire            rdy_in,
+    input   wire            clear,
 
     input   wire            from_rob, //1: rob has instr input
     input   wire [ 4:0]     entry_in,
@@ -98,7 +99,7 @@ regfile reg_query_2(
 
 
 always @(posedge clk_in)begin
-    if (rst_in) begin
+    if (rst_in || clear) begin
         rs_num <= 0;
         ready <= 0;
         rs_full_signal <= 1'b0;

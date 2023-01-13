@@ -13,6 +13,7 @@ module rob #(
     input wire              clk_in,
     input wire              rst_in,
 	input wire		        rdy_in,
+    input wire              clear,
     //if have instr input
     input wire              have_input,
     input wire [31:0]       instr_input,
@@ -79,21 +80,22 @@ module rob #(
 
 reg[4:0] entry[ROB_SIZE-1:0]; 
 reg[31:0] instr_origin[ROB_SIZE-1:0]; 
-reg[ROB_SIZE-1:0] ready;
+reg[ROB_SIZE-1:0] state = 20'b0;
+reg[ROB_SIZE-1:0] ready = 20'b0;
 reg[1:0] destType[ROB_SIZE-1:0]; //0: mem; 1: reg; 2:branch; 3:jl(jump&link)
 reg[10:0] opcode[ROB_SIZE-1:0]; 
 reg[4:0] destination[ROB_SIZE-1:0];
 reg[31:0] value[ROB_SIZE-1:0];
 reg[31:0] pc_value[ROB_SIZE-1:0]; 
-reg[ROB_SIZE-1:0] pc_change; 
+reg[ROB_SIZE-1:0] pc_change = 20'b0; 
 
 reg[4:0] rd[ROB_SIZE-1:0];
 reg[4:0] rs1[ROB_SIZE-1:0], rs2[ROB_SIZE-1:0];
 reg[31:0] imm[ROB_SIZE-1:0]; 
 
-reg rob_full_signal;
-integer rob_num; //the next index = the current number 
-integer entry_num; //the next entry
+reg rob_full_signal = 1'b0;
+integer rob_num = 0; //the next index = the current number 
+integer entry_num = 1; //the next entry
 
 integer i, j;
 
@@ -177,9 +179,16 @@ assign value_commit = rob_value_commit;
 
 
 always @(posedge clk_in) begin
-    if (rst_in) begin
+    if (rst_in || clear) begin
         rob_num <= 0;
-        entry_num <= 5'b0;
+        entry_num <= 1;
+        rob_have_commit <= 1'b0;
+        rob_entry_commit <= 5'b0;
+        rob_destType_commit <= 2'b0;
+        rob_if_pc_c_commit <= 1'b0;
+        rob_new_pc_a_commit <= 32'b0;
+        rob_destination_commit <= 5'b0;
+        rob_value_commit <= 32'b0;
     end
     else if (!rdy_in) begin
 
@@ -190,7 +199,7 @@ always @(posedge clk_in) begin
         //1.store the instruction from IF;
         if (have_input && rob_num < ROB_SIZE-1) begin
             rob_num <= rob_num + 1;
-            entry_num <= (entry_num == ROB_SIZE) ? 1 : (entry_num + 1);
+            entry_num <= (entry_num == ROB_SIZE) ? 0 : (entry_num + 1);
             entry[rob_num] <= entry_num;
             instr_origin[rob_num] <= instr_input;
             pc_value[rob_num] <= instr_input_pc;
@@ -205,6 +214,7 @@ always @(posedge clk_in) begin
                         destination[rob_num] <= rd_if;
                         value[rob_num] <= imm_if;
                         ready[rob_num] <= 1'b1;
+                        state[rob_num] <= 1'b1;
                     end
                     7'b0010111: begin //AUIPC //rd, imm
                         opcode[rob_num] <= `AUIPC;
@@ -212,12 +222,14 @@ always @(posedge clk_in) begin
                         destination[rob_num] <= rd_if;
                         value[rob_num] <= instr_input_pc + imm_if;
                         ready[rob_num] <= 1'b1;
+                        state[rob_num] <= 1'b1;
                     end
                     7'b1101111: begin //JAL //rd, imm
                         opcode[rob_num] <= `JAL;
                         destType[rob_num] <= 2'b11;
                         destination[rob_num] <= rd_if;
                         ready[rob_num] <= 1'b0;
+                        state[rob_num] <= 1'b0;
                         pc_change[rob_num] <= 1'b1;
                     end
                     7'b1100111: begin//JALR //rd, rs1, imm
@@ -225,11 +237,13 @@ always @(posedge clk_in) begin
                         destType[rob_num] <= 2'b11;
                         destination[rob_num] <= rd_if;
                         ready[rob_num] <= 1'b0;
+                        state[rob_num] <= 1'b0;
                         pc_change[rob_num] <= 1'b1;
                     end
                     7'b1100011: begin //Branch //rs1, rs2, imm
                         destType[rob_num] <= 2'b10;
                         ready[rob_num] <= 1'b0;
+                        state[rob_num] <= 1'b0;
                         case (opcode_if[9:7])
                             3'b000: opcode[rob_num] <= `BEQ;
                             3'b001: opcode[rob_num] <= `BNE;
@@ -244,6 +258,7 @@ always @(posedge clk_in) begin
                         destType[rob_num] <= 2'b01;
                         destination[rob_num] <= rd_if;
                         ready[rob_num] <= 1'b0;
+                        state[rob_num] <= 1'b0;
                         case (opcode_if[9:7])
                             3'b000: opcode[rob_num] <= `LB;
                             3'b001: opcode[rob_num] <= `LH;
@@ -256,6 +271,7 @@ always @(posedge clk_in) begin
                     7'b0100011: begin //Store //rs1, rs2, imm
                         destType[rob_num] <= 2'b00;
                         ready[rob_num] <= 1'b0;
+                        state[rob_num] <= 1'b0;
                         case (opcode_if[9:7])
                             3'b000: opcode[rob_num] <= `SB;
                             3'b001: opcode[rob_num] <= `SH;
@@ -267,6 +283,7 @@ always @(posedge clk_in) begin
                         destType[rob_num] <= 2'b01;
                         destination[rob_num] <= rd_if;
                         ready[rob_num] <= 1'b0;
+                        state[rob_num] <= 1'b0;
                         case (opcode_if[9:7])
                             3'b000: opcode[rob_num] <= `ADDI;
                             3'b010: opcode[rob_num] <= `SLTI;
@@ -287,6 +304,7 @@ always @(posedge clk_in) begin
                         destType[rob_num] <= 2'b01;
                         destination[rob_num] <= rd_if;
                         ready[rob_num] <= 1'b0;
+                        state[rob_num] <= 1'b0;
                         case (opcode_if[9:7])
                             3'b000: begin
                                 case (opcode_if[16:10])
@@ -316,10 +334,11 @@ always @(posedge clk_in) begin
         end 
 
         //2.fetch output
-        //遍历ready，找到最上层的0(未被推入任何其他部件)，推入相应位置
+        //遍历state，找到最上层的0(未被推入任何其他部件)，推入相应位置
         i = 0;
-        while (ready[i] == 0 && i < rob_num) i=i+1;
+        while (state[i]!=0 && i < rob_num) i=i+1;
         if (i < rob_num) begin
+            state[i] <= 1'b1;
             have_instr_out <= 1'b1;
             instr_entry_out <= entry[i];
             instr_opcode_out <= opcode[i];
@@ -416,20 +435,16 @@ always @(posedge clk_in) begin
         end
 
         //4.fetch commit
-        //遍历state，找到最上层的2(可被commit的状态)，并通知相应部件进行执行，推出该指令, 并将整个rob向前移位
-        j = 0;
-        while (ready[j] != 1'b1 && j < rob_num) j=j+1;
-        if (j>=rob_num) begin
-            rob_have_commit <= 1'b0;
-        end
-        else begin
-            rob_entry_commit <= entry[i];
-            rob_destType_commit <= destType[i];
-            rob_if_pc_c_commit <= pc_change[i];
-            rob_new_pc_a_commit <= pc_value[i];
-            rob_destination_commit <= destination[i];
-            rob_value_commit <= value[i];
-            for (i=j;i<rob_num;i=i+1) begin
+        //顺序commit
+        if (ready[0]) begin
+            rob_have_commit <= 1'b1;
+            rob_entry_commit <= entry[0];
+            rob_destType_commit <= destType[0];
+            rob_if_pc_c_commit <= pc_change[0];
+            rob_new_pc_a_commit <= pc_value[0];
+            rob_destination_commit <= destination[0];
+            rob_value_commit <= value[0];
+            for (i=1;i<rob_num;i=i+1) begin
                 entry[i-1] <= entry[i];
                 instr_origin[i-1] <= instr_origin[i];
                 ready[i-1] <= ready[i];
@@ -443,9 +458,31 @@ always @(posedge clk_in) begin
                 rs2[i-1] <= rs2[i];
                 imm[i-1] <= imm[i];
             end
+            if (rob_num==1) begin
+                entry[0] <= 5'b0;
+                instr_origin[0] <= 32'b0;
+                ready[0] <= 1'b0;
+                opcode[0] <= 5'b0;
+                destType[0] <= 2'b00;
+                destination[0] <= 5'b0;
+                value[0] <= 32'b0;
+                pc_value[0] <= 32'b0;
+                rd[0] <= 5'b0;
+                rs1[0] <= 5'b0;
+                rs2[0] <= 5'b0;
+                imm[0] <= 32'b0;
+            end
             rob_num <= rob_num-1;
         end
-
+        else begin
+            rob_have_commit <= 1'b0;
+            rob_entry_commit <= 5'b0;
+            rob_destType_commit <= 2'b00;
+            rob_if_pc_c_commit <= 1'b0;
+            rob_new_pc_a_commit <= 32'b0;
+            rob_destination_commit <= 5'b0;
+            rob_value_commit <= 32'b0;
+        end
 
     end
 end    

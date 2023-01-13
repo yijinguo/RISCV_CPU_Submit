@@ -6,6 +6,7 @@ module branch #(
     input   wire            clk_in,
     input   wire            rst_in,
 	input   wire		    rdy_in,
+    input   wire            clear,  
 
     //if rob have input
     input   wire            have_input,
@@ -41,17 +42,17 @@ module branch #(
 reg [10:0] opcode[BRANCH_SIZE-1:0];
 reg [31:0] pc_address[BRANCH_SIZE-1:0];
 reg [ 4:0] entry[BRANCH_SIZE-1:0];
-reg [BRANCH_SIZE-1:0] ready;
+reg [BRANCH_SIZE-1:0] ready = 10'b0;
 reg [31:0] vj[BRANCH_SIZE-1:0], vk[BRANCH_SIZE-1:0];
 reg [4:0] qj[BRANCH_SIZE-1:0], qk[BRANCH_SIZE-1:0];
 reg [31:0] imm[BRANCH_SIZE-1:0]; 
 integer branch_num = 0;
 
-reg br_have_out;
-reg [ 4:0] br_entry_out;
-reg br_if_pc_c_out;
-reg [31:0] br_new_pc_a_out;
-reg [31:0] br_value_out;
+reg br_have_out = 1'b0;
+reg [ 4:0] br_entry_out = 5'b0;
+reg br_if_pc_c_out = 1'b0;
+reg [31:0] br_new_pc_a_out = 32'b0;
+reg [31:0] br_value_out = 32'b0;
 
 wire [ 4:0] qj0, qk0;
 wire [31:0] vj0, vk0;
@@ -59,7 +60,7 @@ wire [31:0] vj0, vk0;
 integer i, j;
 
 assign have_out = br_have_out;
-assign entry_out = br_have_out;
+assign entry_out = br_entry_out;
 assign if_pc_change_out = br_if_pc_c_out;
 assign new_pc_address_out = br_new_pc_a_out;
 assign value_out = br_value_out;
@@ -232,19 +233,24 @@ always @(posedge clk_in) begin
                 end
                 default: ;
             endcase
+            for (j=i; j<branch_num-1; j=j+1) begin
+                opcode[j]<=opcode[j+1];
+                pc_address[j]<=pc_address[j+1];
+                entry[j]<=entry[j+1];
+                ready[j]<=ready[j+1];
+                vj[j]<=vj[j+1];
+                vk[j]<=vk[j+1];
+                qj[j]<=qj[j+1];
+                qk[j]<=qk[j+1];
+                imm[j]<=imm[j+1];
+            end
+            branch_num <= branch_num-1;
         end
-        for (j=i; j<branch_num-1; j=j+1) begin
-            opcode[j]<=opcode[j+1];
-            pc_address[j]<=pc_address[j+1];
-            entry[j]<=entry[j+1];
-            ready[j]<=ready[j+1];
-            vj[j]<=vj[j+1];
-            vk[j]<=vk[j+1];
-            qj[j]<=qj[j+1];
-            qk[j]<=qk[j+1];
-            imm[j]<=imm[j+1];
+        else begin
+            br_entry_out <= 5'b0;
+            br_if_pc_c_out <= 1'b0;
         end
-        branch_num <= branch_num-1;
+        
     end
 end
 
